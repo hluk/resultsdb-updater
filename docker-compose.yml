@@ -1,0 +1,56 @@
+version: '3'
+
+services:
+  dev:
+    build: .
+    volumes:
+      - ./compose/volumes/fedmsg.d:/etc/fedmsg.d:ro,z
+      - ./compose/scripts:/scripts:ro,z
+      - ./resultsdbupdater/:/src/resultsdb-updater/resultsdbupdater/:ro,z
+    env_file: ["compose/dev.env"]
+    links:
+      - umb
+
+  resultsdb-db:
+    image: postgres:9.5.2
+    restart: always
+    env_file: ["compose/resultsdb-db.env"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 30s
+      retries: 3
+
+  resultsdb:
+    build:
+      context: ../resultsdb
+      dockerfile: openshift/Dockerfile
+    working_dir: /code
+    command: ["bash", "-c", "/start.sh"]
+    volumes:
+      - ../resultsdb:/code:ro,z
+      - ./compose/resultsdb-command.sh:/start.sh:ro,z
+      - ./compose/resultsdb-settings.py:/etc/resultsdb/settings.py:ro,z
+      - ./compose/resultsdb.conf:/etc/httpd/conf.d/resultsdb.conf:ro,z
+    ports:
+      - 5001:5001
+    depends_on:
+      resultsdb-db:
+        condition: service_healthy
+
+  umb:
+    user: ${DEV_USER_ID:-1000}
+    image: docker-registry.upshift.redhat.com/factory2/umb:latest
+    restart: unless-stopped
+    command: /var/lib/jboss-amq/bin/amq server
+    volumes:
+      - ./compose/volumes/broker:/var/jbossamq/broker:ro,z
+    ports:
+      -  61616:61616 # openwire
+      -  61617:61617 # openwire+ssl
+      -  8181:8181   # web console
+      -  1099:1099   # rmi management port.
+      -  5671:5671   # amqp
+      -  5673:5673   # amqp+ssl
+      -  61612:61612 # stomp
+      -  61613:61613 # stomp+ssl
